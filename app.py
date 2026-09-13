@@ -48,7 +48,7 @@ def evaluate_teacher_readiness(
     # Determine Base Tier
     if avg_score >= 3.5:
         base_tier = "Advanced"
-    elif avg_score >= 2.6:
+    elif avg_score >= 3.6:
         base_tier = "Proficient"
     elif avg_score >= 1.8:
         base_tier = "Developing"
@@ -199,7 +199,7 @@ if user_prompt := st.chat_input("Reply to the evaluation agent..."):
             with st.spinner("Agent is analyzing your response and evaluating evidence..."):
                 try:
                     response = client.models.generate_content(
-                        model="gemini-2.6-flash",
+                        model="gemini-3.6-flash",
                         contents=st.session_state.chat_history,
                         config=types.GenerateContentConfig(
                             system_instruction=SYSTEM_INSTRUCTION,
@@ -236,7 +236,7 @@ if user_prompt := st.chat_input("Reply to the evaluation agent..."):
                             # Let the agent write its final assessment response & HTML
                             try:
                                 follow_up = client.models.generate_content(
-                                    model="gemini-2.6-flash",
+                                    model="gemini-3.6-flash",
                                     contents=st.session_state.chat_history,
                                     config=types.GenerateContentConfig(
                                         system_instruction=SYSTEM_INSTRUCTION,
