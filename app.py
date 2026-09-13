@@ -1,336 +1,303 @@
 import streamlit as st
+import json
+import os
+from google import genai
+from google.genai import types
 
-# Page setup
-st.set_page_config(
-    page_title="MAIC Teacher AI Readiness Evaluator",
-    page_icon="🎓",
-    layout="wide"
-)
+st.set_page_config(page_title="MAIC Teacher AI Evaluation Agent", page_icon="🤖", layout="wide")
 
-# ---------------------------------------------------------
-# QUESTION BANK (7 Domains grounded in MAIC TF Guide)
-# ---------------------------------------------------------
-QUESTION_BANK = [
-    {
-        "id": "d1_awareness",
-        "name": "1. AI Awareness & Conceptual Fluency",
-        "tag": "Core Literacy",
-        "question": "How do you characterize your understanding of how generative AI models produce outputs, their failure modes (hallucinations), and what they can and cannot do?",
-        "options": {
-            1: "Emerging: View AI as an infallible 'search engine' or answer machine; unfamiliar with hallucinations or training limitations.",
-            2: "Developing: Aware of hallucinations and probabilistic nature; understand basic prompting but struggle to predict failure cases.",
-            3: "Proficient: View AI as a thinking partner; verify outputs against primary sources; understand context windows and bias.",
-            4: "Advanced: Deep technical grasp of model capabilities; teach peers how to systematically probe outputs and identify subtle errors."
-        }
-    },
-    {
-        "id": "d2_instruction",
-        "name": "2. Instructional Planning & Differentiation",
-        "tag": "Instructional Practice",
-        "question": "How do you use generative AI for lesson design, pacing, instructional scaffolding, and accommodating diverse learner profiles?",
-        "options": {
-            1: "Emerging: Rarely or never use AI for planning, or only generate generic worksheets and low-depth recall quizzes.",
-            2: "Developing: Occasionally use AI for brainstorming lesson hooks, generating leveled texts, or translating materials.",
-            3: "Proficient: Routinely use AI to build tiered scaffolds, targeted remediation sequences, and multi-modal instructional resources.",
-            4: "Advanced: Co-design adaptive learning paths; author and share vetted, prompt-engineered curricular units across departments."
-        }
-    },
-    {
-        "id": "d3_assessment",
-        "name": "3. Assessment Integrity, Friction & Judgment",
-        "tag": "Authentic Work",
-        "question": "How do your assignments incorporate 'Design for Friction' (demanding genuine human thought) and 'Assess for Judgment' (evaluating process over final prose)?",
-        "options": {
-            1: "Emerging: Rely on traditional take-home essays; depend on automated AI-detector software to enforce academic integrity.",
-            2: "Developing: Require basic AI-use citation; experimenting with in-class benchmarks, oral defense, or handwritten outlines.",
-            3: "Proficient: Intentionally design 'cognitive friction' (critique loops, synthesis of local context); assess prompt logs and revision history.",
-            4: "Advanced: Fully transformed assessment ecosystem based on authentic performance tasks, iterative defense, and original reflection."
-        }
-    },
-    {
-        "id": "d4_ethics",
-        "name": "4. Ethics, Privacy & Student Safeguards (Safeguard Gate)",
-        "tag": "Governance & Compliance",
-        "is_safeguard": True,
-        "question": "How strictly do your classroom routines protect student privacy (FERPA/COPPA), enforce data minimization, and address algorithmic bias?",
-        "options": {
-            1: "Emerging: Unclear on district policies; have entered student PII, grades, or unredacted student work into public commercial AI tools.",
-            2: "Developing: Adhere to strict data minimization (zero PII entered); utilize only district-cleared platforms; discuss basic bias with students.",
-            3: "Proficient: Actively teach student data rights; evaluate tools for algorithmic/cultural bias; maintain transparent disclosure norms.",
-            4: "Advanced: Serve as a building compliance resource; review vendor privacy terms and data retention policies alongside administration."
-        }
-    },
-    {
-        "id": "d5_mindset",
-        "name": "5. Confidence, Mindset & Professional Agency",
-        "tag": "Human-Centered Agency",
-        "question": "What is your professional stance toward integrating generative AI into your teaching routines?",
-        "options": {
-            1: "Emerging: Apprehensive or defensive; concerned AI invalidates student learning and undermines educator autonomy.",
-            2: "Developing: Curious but cautious; willing to test AI in low-stakes tasks when provided explicit, step-by-step guidance.",
-            3: "Proficient: Confident and proactive; maintain clear professional agency, treating AI as a thought-partner that augments human judgment.",
-            4: "Advanced: Highly adaptive and resilient; view technological disruption as an opportunity to rethink teaching and learning."
-        }
-    },
-    {
-        "id": "d6_infrastructure",
-        "name": "6. Access, Infrastructure & Resource Reality",
-        "tag": "Capacity & Support",
-        "question": "How would you describe your access to student devices, reliable connectivity, approved tools, and protected planning time?",
-        "options": {
-            1: "Emerging: Severe constraints (unreliable Wi-Fi, shared carts only, zero dedicated time or budget for AI training).",
-            2: "Developing: Moderate access (reliable classroom network, 1:1 devices 2–3 days/week, self-directed exploration time only).",
-            3: "Proficient: Stable access (1:1 student devices daily, district-vetted tool accounts, structured PLC collaborative planning time).",
-            4: "Advanced: Robust access (high-capacity infrastructure, funded enterprise tooling, weekly dedicated instructional coaching cycles)."
-        }
-    },
-    {
-        "id": "d7_transformation",
-        "name": "7. Professional Transformation & Collaborative Culture",
-        "tag": "Lead Your Own Transformation",
-        "question": "How do you engage with colleagues around AI integration, peer coaching, and continuous pedagogical improvement?",
-        "options": {
-            1: "Emerging: Work in isolation; have not participated in AI-related professional learning or shared practices with peers.",
-            2: "Developing: Attend occasional schoolwide webinars or workshops; apply ideas individually without systematic peer follow-up.",
-            3: "Proficient: Actively participate in peer coaching, co-planning cycles, or cross-departmental sharing of AI-integrated lessons.",
-            4: "Advanced: Serve on the Executive Trainer team or instructional leadership committee; host 'Model Classrooms' for peer observation."
-        }
-    }
-]
+# -----------------------------------------------------------------------------
+# 1. EVALUATION TOOL FUNCTION (The Agent's Internal Assessment Engine)
+# -----------------------------------------------------------------------------
+def evaluate_teacher_readiness(
+    educator_name: str,
+    grade_band: str,
+    resource_level: str,
+    d1_awareness_score: float,
+    d1_evidence: str,
+    d2_instruction_score: float,
+    d2_evidence: str,
+    d3_assessment_score: float,
+    d3_evidence: str,
+    d4_safeguard_score: float,
+    d4_evidence: str,
+    d5_mindset_score: float,
+    d5_evidence: str,
+    d6_infrastructure_score: float,
+    d6_evidence: str,
+    d7_transformation_score: float,
+    d7_evidence: str,
+    protected_time_gap: bool
+) -> str:
+    """
+    Evaluates teacher scores across all 7 domains, enforces the safeguard gate,
+    and returns a structured assessment summary payload.
+    """
+    scores = [
+        d1_awareness_score, d2_instruction_score, d3_assessment_score,
+        d4_safeguard_score, d5_mindset_score, d6_infrastructure_score,
+        d7_transformation_score
+    ]
+    avg_score = sum(scores) / len(scores)
 
-# ---------------------------------------------------------
-# UI HEADER & CONTEXT INPUTS
-# ---------------------------------------------------------
-st.title("🎓 Teacher AI Readiness Evaluation Agent")
-st.caption("Miami AI Club (MAIC) AI in Education Task Force Implementation Framework")
-
-with st.sidebar:
-    st.header("Educator & School Profile")
-    educator_name = st.text_input("Educator / ID (Optional)", placeholder="e.g., Ms. Taylor / Grade 10 Bio")
-    grade_band = st.selectbox(
-        "Grade Band & Setting",
-        ["Elementary (K-5)", "Middle School (6-8)", "High School (9-12)", "Instructional Specialist / Coach"]
-    )
-    resource_level = st.selectbox(
-        "School Resource Reality",
-        [
-            "Constrained (Low/No-Cost Tools, Shared Hardware, Zero AI Budget)",
-            "Moderate (1:1 Student Devices, Exploring District Pilot Licenses)",
-            "Well-Resourced (Enterprise Accounts, Dedicated Coaches, Protected PD)"
-        ]
-    )
-    st.info("💡 **Safeguard Gate Notice**: Per Task Force policy, Domain 4 (Ethics & Privacy) sets an absolute ceiling on overall readiness.")
-
-# ---------------------------------------------------------
-# QUESTIONNAIRE SECTION
-# ---------------------------------------------------------
-st.subheader("📋 Diagnostic Assessment")
-st.write("Select the option for each domain that most closely describes your current classroom practice.")
-
-scores = {}
-for q in QUESTION_BANK:
-    with st.expander(f"**{q['name']}** [{q['tag']}]", expanded=True):
-        st.write(f"*{q['question']}*")
-        
-        # Format radio options with full descriptions
-        choices = list(q["options"].keys())
-        selected_val = st.radio(
-            label="Select your current stage:",
-            options=choices,
-            format_func=lambda x, opts=q["options"]: opts[x],
-            index=1,
-            key=q["id"]
-        )
-        scores[q["id"]] = selected_val
-
-# ---------------------------------------------------------
-# EVALUATION & REPORT GENERATION ENGINE
-# ---------------------------------------------------------
-if st.button("Run Evaluation & Generate Summary Report", type="primary"):
-    total_val = sum(scores.values())
-    avg_score = total_val / len(scores)
-    d4_score = scores["d4_ethics"]
-
-    # Calculate baseline readiness tier
+    # Base Tier
     if avg_score >= 3.5:
         base_tier = "Advanced"
-        tier_color = "#10b981"
-        tier_desc = "Exemplary practice: Leader in authentic assessment design, peer mentoring, and systemic innovation."
     elif avg_score >= 2.6:
         base_tier = "Proficient"
-        tier_color = "#0284c7"
-        tier_desc = "Strategic adoption: Confident instructional user, intentional cognitive friction, and robust student safeguards."
     elif avg_score >= 1.8:
         base_tier = "Developing"
-        tier_color = "#f59e0b"
-        tier_desc = "Active experimentation: Routine lesson assistance, developing prompt confidence, needing assessment redesign support."
     else:
         base_tier = "Emerging"
-        tier_color = "#ef4444"
-        tier_desc = "Early stage: Focus on foundational literacy, basic prompting, and legal data privacy compliance."
 
-    # Enforce the Safeguard Gate (Domain 4 Ceiling)
+    # Safeguard Gate: Domain 4 ceiling
     final_tier = base_tier
     safeguard_applied = False
+    gate_reason = ""
 
-    if d4_score == 1 and base_tier in ["Developing", "Proficient", "Advanced"]:
+    if d4_safeguard_score < 2.0 and base_tier in ["Developing", "Proficient", "Advanced"]:
         final_tier = "Emerging"
-        tier_color = "#ef4444"
         safeguard_applied = True
-    elif d4_score == 2 and base_tier in ["Proficient", "Advanced"]:
+        gate_reason = "Domain 4 (Ethics, Privacy & Student Safety) scored at Emerging (< 2.0). Overall readiness is capped at Emerging until student data protections are verified."
+    elif d4_safeguard_score < 3.0 and base_tier in ["Proficient", "Advanced"]:
         final_tier = "Developing"
-        tier_color = "#f59e0b"
         safeguard_applied = True
+        gate_reason = "Domain 4 (Ethics, Privacy & Student Safety) scored at Developing (< 3.0). Overall readiness is capped at Developing because tool adoption cannot proceed without mature privacy and safety guardrails."
 
-    # Display Assessment Dashboard
-    st.divider()
-    st.header("📊 Assessment Results & Diagnostic Summary")
+    result = {
+        "educator_name": educator_name,
+        "grade_band": grade_band,
+        "resource_level": resource_level,
+        "composite_score": round(avg_score, 2),
+        "base_tier": base_tier,
+        "final_tier": final_tier,
+        "safeguard_applied": safeguard_applied,
+        "gate_reason": gate_reason,
+        "protected_time_gap": protected_time_gap,
+        "domains": {
+            "Domain 1: AI Awareness & Conceptual Literacy": {"score": d1_awareness_score, "evidence": d1_evidence},
+            "Domain 2: Instructional Planning & Differentiation": {"score": d2_instruction_score, "evidence": d2_evidence},
+            "Domain 3: Assessment Integrity (Friction & Judgment)": {"score": d3_assessment_score, "evidence": d3_evidence},
+            "Domain 4: Ethics, Privacy & Student Safeguards": {"score": d4_safeguard_score, "evidence": d4_evidence},
+            "Domain 5: Confidence, Mindset & Professional Agency": {"score": d5_mindset_score, "evidence": d5_evidence},
+            "Domain 6: Access, Equity & Infrastructure": {"score": d6_infrastructure_score, "evidence": d6_evidence},
+            "Domain 7: Professional Transformation & Culture": {"score": d7_transformation_score, "evidence": d7_evidence},
+        }
+    }
+    return json.dumps(result)
 
-    col_metric, col_details = st.columns()
-    with col_metric:
-        st.metric(label="Overall Readiness Score", value=f"{avg_score:.2f} / 4.00")
-        st.markdown(
-            f"<div style='padding: 10px 16px; border-radius: 8px; background-color: {tier_color}22; "
-            f"border: 2px solid {tier_color}; color: {tier_color}; font-size: 1.25rem; font-weight: bold; text-align: center;'>"
-            f"{final_tier.upper()} TIER</div>",
-            unsafe_allow_html=True
+# Tool declaration for Gemini
+evaluation_tool = types.Tool(
+    function_declarations=[
+        types.FunctionDeclaration(
+            name="evaluate_teacher_readiness",
+            description="Computes readiness scores across all 7 MAIC domains, applies the safeguard gate, and generates the assessment payload.",
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "educator_name": types.Schema(type=types.Type.STRING),
+                    "grade_band": types.Schema(type=types.Type.STRING),
+                    "resource_level": types.Schema(type=types.Type.STRING),
+                    "d1_awareness_score": types.Schema(type=types.Type.NUMBER, description="1.0 to 4.0 score on AI concepts and hallucinations."),
+                    "d1_evidence": types.Schema(type=types.Type.STRING),
+                    "d2_instruction_score": types.Schema(type=types.Type.NUMBER, description="1.0 to 4.0 score on lesson planning and scaffolding."),
+                    "d2_evidence": types.Schema(type=types.Type.STRING),
+                    "d3_assessment_score": types.Schema(type=types.Type.NUMBER, description="1.0 to 4.0 score on Design for Friction & Assess for Judgment."),
+                    "d3_evidence": types.Schema(type=types.Type.STRING),
+                    "d4_safeguard_score": types.Schema(type=types.Type.NUMBER, description="1.0 to 4.0 score on FERPA/COPPA, data minimization, and safety."),
+                    "d4_evidence": types.Schema(type=types.Type.STRING),
+                    "d5_mindset_score": types.Schema(type=types.Type.NUMBER, description="1.0 to 4.0 score on professional agency vs replacement anxiety."),
+                    "d5_evidence": types.Schema(type=types.Type.STRING),
+                    "d6_infrastructure_score": types.Schema(type=types.Type.NUMBER, description="1.0 to 4.0 score on devices, bandwidth, and protected time."),
+                    "d6_evidence": types.Schema(type=types.Type.STRING),
+                    "d7_transformation_score": types.Schema(type=types.Type.NUMBER, description="1.0 to 4.0 score on peer coaching and model classrooms."),
+                    "d7_evidence": types.Schema(type=types.Type.STRING),
+                    "protected_time_gap": types.Schema(type=types.Type.BOOLEAN, description="True if teacher reports AI learning is on top of full workload without protected PLC time.")
+                },
+                required=[
+                    "educator_name", "grade_band", "resource_level",
+                    "d1_awareness_score", "d1_evidence",
+                    "d2_instruction_score", "d2_evidence",
+                    "d3_assessment_score", "d3_evidence",
+                    "d4_safeguard_score", "d4_evidence",
+                    "d5_mindset_score", "d5_evidence",
+                    "d6_infrastructure_score", "d6_evidence",
+                    "d7_transformation_score", "d7_evidence",
+                    "protected_time_gap"
+                ]
+            )
+        )
+    ]
+)
+
+# -----------------------------------------------------------------------------
+# 2. SYSTEM INSTRUCTION (Agent's Core Brain & Persona)
+# -----------------------------------------------------------------------------
+SYSTEM_INSTRUCTION = """
+You are the Miami AI Club (MAIC) AI in Education Task Force Evaluation Agent.
+Your mission is to evaluate a school teacher's readiness for AI integration through an interactive, professional, non-evaluative interview.
+
+You must ground your evaluation in the MAIC Task Force Implementation Guide and Educator Synthesis documents:
+- The 4 Readiness Tiers: Emerging (1.00–1.99), Developing (2.00–2.99), Proficient (3.00–3.99), Advanced (4.00–5.00).
+- The 7 Diagnostic Domains:
+    1. AI Awareness & Conceptual Literacy (token prediction, hallucination auditing)
+    2. Instructional Planning & Scaffolding (adaptive differentiation, multimodal assets)
+    3. Assessment Integrity (Design for Friction, Assess for Judgment, moving off AI detectors)
+    4. Ethics, Privacy & Student Safeguards (FERPA/COPPA, data minimization, zero-retention vendor terms, human oversight)
+    5. Confidence, Mindset & Professional Agency (AI as thinking partner, not replacement)
+    6. Access, Equity & Infrastructure (device equity, protected planning time vs workload burden)
+    7. Professional Transformation & Collaborative Culture (Lead Your Own Transformation, peer coaching, model classrooms, explicit Appendix D Student AI Literacy)
+
+INTERVIEW PROTOCOL:
+1. Conduct an engaging conversation. Ask 1 or at most 2 questions per turn. Never dump a long list of questions.
+2. Listen carefully to the teacher's narrative. If an answer is vague or brief, probe for concrete classroom evidence:
+   - If they mention using AI for lesson planning, ask how they differentiate for diverse learners.
+   - If they mention essays or student homework, probe whether they 'Design for Friction' or rely on automated AI detectors.
+   - Always probe Domain 4: Ask specifically if student PII is entered and whether tools are district-cleared.
+   - Always check Domain 6: Ask if they are given protected contract time to learn AI or if it is on top of an already full workload.
+3. Once you have sufficient qualitative evidence across all 7 domains (typically 4 to 6 conversational turns), DO NOT ask more questions.
+4. Execute the tool `evaluate_teacher_readiness` with your scored judgments (1.00 to 4.00 for each domain) and qualitative evidence summaries.
+5. After receiving the tool output, generate a complete, standalone, professionally styled HTML report enclosed in a ```html ``` block.
+   The HTML report must contain:
+   - Header with Educator, Grade Band, Resource Reality, and Final Tier badge.
+   - Safeguard Gate Notice if Domain 4 capped their score.
+   - Workload Perception Gap Notice if protected time is missing.
+   - Domain Score Table with scores (1.0–4.0) and evidence notes from your interview.
+   - Differentiated PD assignments from MAIC Appendix A (Units 1–12) and Appendix C (Joint Units 1–10).
+   - Student AI Literacy plan from MAIC Appendix D (Units 1–6).
+   - Contextual 30-60-90 Day Milestone Roadmap adjusted to their resource level.
+"""
+
+# -----------------------------------------------------------------------------
+# 3. STREAMLIT INTERFACE & AGENT RUNTIME
+# -----------------------------------------------------------------------------
+st.title("🤖 MAIC Teacher AI Readiness Evaluation Agent")
+st.caption("Autonomous Diagnostic Agent • MAIC AI in Education Task Force Framework")
+
+with st.sidebar:
+    st.header("Agent Configuration")
+    api_key = st.text_input("Enter Gemini API Key", type="password", value=os.environ.get("GEMINI_API_KEY", ""))
+    st.markdown("---")
+    st.markdown("""
+    **Agent Capabilities:**
+    - Adaptive dialogue & evidence probing
+    - 7-Domain rubric scoring (1.0–4.0)
+    - Hard Safeguard Gate enforcement
+    - Workload perception gap analysis
+    - Autonomous HTML scorecard authoring
+    """)
+    if st.button("Reset Interview"):
+        st.session_state.chat_history = []
+        st.session_state.html_report = None
+        st.rerun()
+
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = [
+        types.Content(
+            role="model",
+            parts=[types.Part.from_text(
+                text="Welcome! I am the MAIC AI Readiness Evaluation Agent. I'm here to have a collaborative, non-evaluative conversation to understand how generative AI intersects with your teaching, your students' learning, and your school environment.\n\nTo begin, could you share what grade band and subject you teach, and give me a brief picture of your school's current technology setup (e.g., do students have 1:1 devices, and do you have access to approved AI tools)?"
+            )]
+        )
+    ]
+if "html_report" not in st.session_state:
+    st.session_state.html_report = None
+
+# Display conversation
+for content in st.session_state.chat_history:
+    for part in content.parts:
+        if part.text:
+            with st.chat_message("assistant" if content.role == "model" else "user"):
+                st.markdown(part.text)
+
+# User input turn
+if user_prompt := st.chat_input("Reply to the evaluation agent..."):
+    if not api_key:
+        st.error("Please enter a Gemini API Key in the sidebar to run the agent.")
+    else:
+        # Display user message
+        with st.chat_message("user"):
+            st.markdown(user_prompt)
+
+        st.session_state.chat_history.append(
+            types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)])
         )
 
-    with col_details:
-        st.write(f"**Diagnostic Profile:** {tier_desc}")
-        if safeguard_applied:
-            st.error(
-                f"⚠️ **Safeguard Gate Enforced:** Your calculated technical score is {avg_score:.2f}, "
-                f"but overall readiness is capped at **{final_tier}** because Domain 4 (Ethics & Privacy) "
-                f"scored at level {d4_score}. Tool adoption cannot exceed legal compliance and student protection standards."
-            )
+        # Agent reasoning loop
+        client = genai.Client(api_key=api_key)
 
-    # Domain Breakdown Progress Bars
-    st.subheader("Domain Mastery Breakdown")
-    for q in QUESTION_BANK:
-        sc = scores[q["id"]]
-        pct = int((sc / 4.0) * 100)
-        c1, c2 = st.columns()
-        with c1:
-            st.write(f"**{q['name']}**")
-        with c2:
-            st.progress(pct, text=f"Stage {sc} of 4: {['', 'Emerging', 'Developing', 'Proficient', 'Advanced'][sc]}")
+        with st.chat_message("assistant"):
+            with st.spinner("Agent is analyzing your response and evaluating evidence..."):
+                response = client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=st.session_state.chat_history,
+                    config=types.GenerateContentConfig(
+                        system_instruction=SYSTEM_INSTRUCTION,
+                        temperature=0.4,
+                        tools=[evaluation_tool]
+                    )
+                )
 
-    # Tailored Recommendations based on Implementation Guide Appendices
+                # Check if the agent called the evaluation tool
+                if response.function_calls:
+                    for call in response.function_calls:
+                        if call.name == "evaluate_teacher_readiness":
+                            # Execute the local evaluation tool
+                            args = dict(call.args)
+                            tool_result_json = evaluate_teacher_readiness(**args)
+
+                            # Provide tool result back to the agent
+                            st.session_state.chat_history.append(response.candidates[0].content)
+                            st.session_state.chat_history.append(
+                                types.Content(
+                                    role="user",
+                                    parts=[types.Part.from_function_response(
+                                        name="evaluate_teacher_readiness",
+                                        response={"result": tool_result_json}
+                                    )]
+                                )
+                            )
+
+                            # Let the agent write its final assessment response & HTML
+                            follow_up = client.models.generate_content(
+                                model="gemini-2.5-flash",
+                                contents=st.session_state.chat_history,
+                                config=types.GenerateContentConfig(
+                                    system_instruction=SYSTEM_INSTRUCTION,
+                                    temperature=0.3
+                                )
+                            )
+                            agent_text = follow_up.text
+                            st.markdown(agent_text)
+                            st.session_state.chat_history.append(
+                                types.Content(role="model", parts=[types.Part.from_text(text=agent_text)])
+                            )
+                else:
+                    agent_text = response.text
+                    st.markdown(agent_text)
+                    st.session_state.chat_history.append(
+                        types.Content(role="model", parts=[types.Part.from_text(text=agent_text)])
+                    )
+
+                # Extract HTML report if present in agent response
+                if "```html" in agent_text:
+                    start_idx = agent_text.find("```html") + 7
+                    end_idx = agent_text.find("```", start_idx)
+                    if end_idx != -1:
+                        st.session_state.html_report = agent_text[start_idx:end_idx].strip()
+
+# Render download button and preview if assessment is finalized
+if st.session_state.html_report:
     st.divider()
-    st.subheader("🎯 Differentiated Action Plan & Assigned Units")
-
-    r1, r2 = st.columns(2)
-    with r1:
-        st.markdown("### 📚 Assigned Professional Development (Appendix A & C)")
-        if final_tier == "Emerging":
-            st.markdown("- **Appendix A Unit 1:** AI Literacy & Conceptual Understanding (Limitations & Failure Modes)")
-            st.markdown("- **Appendix A Unit 2:** Ethics, Privacy, and Responsible Classroom Use")
-            st.markdown("- **Appendix C Unit 1:** Human–AI Collaboration and Role Clarity")
-        elif final_tier == "Developing":
-            st.markdown("- **Appendix A Unit 3:** Instructional Planning with AI & Curricular Alignment")
-            st.markdown("- **Appendix A Unit 4:** Differentiated Learning & Adaptive Scaffolding Through AI")
-            st.markdown("- **Appendix A Unit 7:** Assessment Integrity in an AI Era (AI-Resilient Tasks)")
-        elif final_tier == "Proficient":
-            st.markdown("- **Appendix A Unit 8:** Classroom Management in AI-Integrated Environments")
-            st.markdown("- **Appendix A Unit 10:** AI for Teacher Productivity & Professional Workflow")
-            st.markdown("- **Appendix C Unit 8:** Ethical Decision-Making Scenarios & Case Studies")
-        else:
-            st.markdown("- **Appendix A Unit 11:** Collaborative Schoolwide AI Culture & Norms")
-            st.markdown("- **Appendix A Unit 12:** Continuous Improvement, Model Classrooms & Reflective Practice")
-            st.markdown("- **Appendix B Unit 15:** Supporting Teachers in AI Integration (Executive Trainer track)")
-
-        st.markdown("### 💡 Authentic Work & Cognitive Friction")
-        if scores["d3_assessment"] <= 2:
-            st.markdown("- **De-emphasize AI Detectors:** Shift verification to in-class writing benchmarks and live check-ins.")
-            st.markdown("- **Design for Friction:** Require students to integrate un-crawlable local context, personal narratives, or classroom discussions.")
-            st.markdown("- **Assess for Judgment:** Evaluate students on prompt evolution logs and factual critique rather than final prose alone.")
-        else:
-            st.markdown("- **Comparative Prompting:** Have students run identical inquiries across two distinct models and debate the divergences.")
-            st.markdown("- **Exemplar Sharing:** Present your assessment rubrics to department colleagues during monthly PLC periods.")
-
-    with r2:
-        st.markdown("### 🛡️ Privacy & Safeguard Actions")
-        if scores["d4_ethics"] <= 2:
-            st.markdown("- **Data Minimization:** Never paste student PII, IEP records, or student work into unvetted public tools.")
-            st.markdown("- **Model Training Restrictions:** Confirm that tools used have contractual 'zero data retention' or non-training clauses.")
-            st.markdown("- **Classroom Disclosure:** Post a clear AI transparency expectation in your physical room and course syllabus.")
-        else:
-            st.markdown("- **Algorithmic Bias Labs:** Lead students in structured exercises analyzing AI responses for demographic or cultural bias.")
-            st.markdown("- **Governance Contribution:** Offer feedback to the administrative team on tool-vetting rubrics.")
-
-        st.markdown("### 🎓 Student AI Literacy Focus (Appendix D)")
-        if final_tier in ["Emerging", "Developing"]:
-            st.markdown("- **Unit 1 (What AI Is & Isn't):** Help students understand token prediction and the mechanics of hallucinations.")
-            st.markdown("- **Unit 2 (Responsible Use):** Set clear boundaries regarding attribution and teacher-approved use cases.")
-            st.markdown("- **Unit 5 (Academic Integrity):** Guide students to differentiate brainstorming vs. unapproved submission.")
-        else:
-            st.markdown("- **Unit 3 (Prompting as Questioning):** Train students to treat AI as a research interlocutor.")
-            st.markdown("- **Unit 4 (Evaluating Output):** Conduct forensic fact-checking sessions comparing AI citations with original sources.")
-            st.markdown("- **Unit 6 (Creativity & Problem Solving):** Use generative AI as an iterative divergent-thinking partner.")
-
-    # Contextual Roadmap
-    st.divider()
-    st.subheader("🗓️ 90-Day Implementation Roadmap")
-    if "Constrained" in resource_level:
-        st.markdown("""
-        1. **Days 1–30 (Zero-Cost Governance):** Adopt free browser tools with zero-data-retention switches enabled. Establish in-class baseline writing samples.
-        2. **Days 31–60 (Low-Tech Friction):** Restructure assignments into multi-stage tasks: oral defenses, peer critiques, and handwritten synthesis outlines.
-        3. **Days 61–90 (Peer PLC Labs):** Pair with a peer during standard planning periods to co-plan one AI-enhanced lesson unit using free approved tools.
-        """)
-    else:
-        st.markdown("""
-        1. **Days 1–30 (Enterprise Sandbox & Baseline):** Register for district-licensed workspace accounts, execute confidentiality forms, and take department baseline surveys.
-        2. **Days 31–60 (Tiered Workshops & Artifact):** Complete assigned Appendix A modules and submit one verified lesson template showing 'Design for Friction'.
-        3. **Days 61–90 (Micro-Coaching & Student Units):** Host a peer observation session, deploy Appendix D Student AI Literacy Units 1–3, and collect student reflection logs.
-        """)
-
-    # Exportable HTML Summary
-    html_report = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="utf-8"/>
-      <title>AI Readiness Assessment Summary</title>
-      <style>
-        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 30px; color: #0f172a; line-height: 1.5; }}
-        .header {{ border-bottom: 2px solid #1e3a8a; padding-bottom: 12px; margin-bottom: 20px; }}
-        .tier {{ font-size: 1.4rem; font-weight: bold; color: {tier_color}; margin-top: 6px; }}
-        .section {{ margin-top: 24px; }}
-        .box {{ background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-top: 10px; }}
-        ul {{ padding-left: 20px; }}
-      </style>
-    </head>
-    <body>
-      <div class="header">
-        <h1>Teacher AI Readiness Assessment Report</h1>
-        <p><strong>Educator:</strong> {educator_name or 'Educator'} | <strong>Grade Band:</strong> {grade_band} | <strong>Resource Context:</strong> {resource_level}</p>
-        <div class="tier">Assessed Readiness Tier: {final_tier.upper()} ({avg_score:.2f} / 4.00)</div>
-      </div>
-      <div class="section">
-        <h3>Summary Profile</h3>
-        <p>{tier_desc}</p>
-        {'<p style="color:red;"><strong>Safeguard Gate Enforced:</strong> Overall readiness was capped due to Domain 4 (Privacy & Safety) scoring at level ' + str(d4_score) + '.</p>' if safeguard_applied else ''}
-      </div>
-      <div class="section">
-        <h3>Domain Scores</h3>
-        <ul>
-          {''.join([f"<li><strong>{q['name']}:</strong> {scores[q['id']]}/4 ({['', 'Emerging', 'Developing', 'Proficient', 'Advanced'][scores[q['id']]]})</li>" for q in QUESTION_BANK])}
-        </ul>
-      </div>
-      <div class="section">
-        <h3>Recommended Focus</h3>
-        <div class="box">
-          <p>Review the assigned modules in <strong>Appendix A</strong> and student literacy units in <strong>Appendix D</strong> of the MAIC Implementation Guide.</p>
-        </div>
-      </div>
-    </body>
-    </html>
-    """
-
-    st.download_button(
-        label="📥 Download Assessment Summary (HTML)",
-        data=html_report,
-        file_name=f"ai_readiness_assessment_{educator_name or 'teacher'}.html",
-        mime="text/html"
-    )
+    st.success("🎉 **Assessment Complete!** Your tailored HTML diagnostic summary has been authored by the agent.")
+    c1, c2 = st.columns()
+    with c1:
+        st.download_button(
+            label="📥 Download HTML Summary Report",
+            data=st.session_state.html_report,
+            file_name="MAIC_Teacher_AI_Readiness_Report.html",
+            mime="text/html",
+            type="primary"
+        )
+    with st.expander("👁️ Preview Generated Assessment Report in Browser", expanded=True):
+        st.components.v1.html(st.session_state.html_report, height=650, scrolling=True)
