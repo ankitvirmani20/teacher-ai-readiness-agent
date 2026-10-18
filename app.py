@@ -1,18 +1,19 @@
 import streamlit as st
 import json
 import os
+import re
 from google import genai
 from google.genai import errors
 from google.genai import types
 
 st.set_page_config(
-    page_title="MAIC Teacher AI Readiness Evaluation Agent",
-    page_icon="🤖",
+    page_title="MAIC Teacher AI Readiness Consultation",
+    page_icon="🌱",
     layout="wide"
 )
 
 # -----------------------------------------------------------------------------
-# 1. EVALUATION TOOL FUNCTION (The Agent's Internal Assessment Engine)
+# 1. EVALUATION TOOL FUNCTION (Diagnostic Engine)
 # -----------------------------------------------------------------------------
 def evaluate_teacher_readiness(
     educator_name: str,
@@ -35,8 +36,8 @@ def evaluate_teacher_readiness(
     protected_time_gap: bool
 ) -> str:
     """
-    Computes teacher readiness scores across all 7 MAIC domains, enforces the safeguard gate,
-    and returns a structured JSON assessment summary.
+    Computes teacher readiness scores across all 7 MAIC domains,
+    identifies focus areas, and returns a structured JSON summary.
     """
     scores = [
         d1_awareness_score, d2_instruction_score, d3_assessment_score,
@@ -47,27 +48,33 @@ def evaluate_teacher_readiness(
 
     # Determine Base Tier
     if avg_score >= 3.5:
-        base_tier = "Advanced"
-    elif avg_score >= 3.6:
-        base_tier = "Proficient"
-    elif avg_score >= 1.8:
-        base_tier = "Developing"
+        base_tier = "Advanced Integration"
+    elif avg_score >= 3.0:
+        base_tier = "Proficient Integration"
+    elif avg_score >= 2.0:
+        base_tier = "Developing Practice"
     else:
-        base_tier = "Emerging"
+        base_tier = "Emerging Exploration"
 
-    # Safeguard Gate: Domain 4 (Privacy & Student Safety) sets a hard ceiling
+    # Growth Guidance: Domain 4 establishes foundational student safeguards
     final_tier = base_tier
     safeguard_applied = False
-    gate_reason = ""
+    priority_focus = ""
 
-    if d4_safeguard_score < 2.0 and base_tier in ["Developing", "Proficient", "Advanced"]:
-        final_tier = "Emerging"
+    if d4_safeguard_score < 2.0 and base_tier in ["Developing Practice", "Proficient Integration", "Advanced Integration"]:
+        final_tier = "Emerging Exploration"
         safeguard_applied = True
-        gate_reason = "Domain 4 (Ethics, Privacy & Student Safety) scored in the Emerging band (< 2.0). Overall readiness is capped at Emerging until student data protections are verified."
-    elif d4_safeguard_score < 3.0 and base_tier in ["Proficient", "Advanced"]:
-        final_tier = "Developing"
+        priority_focus = (
+            "Foundational Safeguards: Establishing student data privacy protocols "
+            "is our immediate priority area to address before scaling interactive tool usage."
+        )
+    elif d4_safeguard_score < 3.0 and base_tier in ["Proficient Integration", "Advanced Integration"]:
+        final_tier = "Developing Practice"
         safeguard_applied = True
-        gate_reason = "Domain 4 (Ethics, Privacy & Student Safety) scored in the Developing band (< 3.0). Overall readiness is capped at Developing because tool adoption cannot proceed without mature privacy and safety guardrails."
+        priority_focus = (
+            "Safety Guardrail Maturation: Deepening classroom compliance and data minimization "
+            "is the recommended next step to support your advanced instructional strategies."
+        )
 
     result = {
         "educator_name": educator_name,
@@ -77,115 +84,117 @@ def evaluate_teacher_readiness(
         "base_tier": base_tier,
         "final_tier": final_tier,
         "safeguard_applied": safeguard_applied,
-        "gate_reason": gate_reason,
+        "priority_focus": priority_focus,
         "protected_time_gap": protected_time_gap,
         "domains": {
-            "Domain 1: AI Awareness & Conceptual Literacy": {"score": d1_awareness_score, "evidence": d1_evidence},
+            "Domain 1: AI Literacy & Concepts": {"score": d1_awareness_score, "evidence": d1_evidence},
             "Domain 2: Instructional Planning & Differentiation": {"score": d2_instruction_score, "evidence": d2_evidence},
-            "Domain 3: Assessment Integrity (Friction & Judgment)": {"score": d3_assessment_score, "evidence": d3_evidence},
+            "Domain 3: Authentic Assessment & Judgment": {"score": d3_assessment_score, "evidence": d3_evidence},
             "Domain 4: Ethics, Privacy & Student Safeguards": {"score": d4_safeguard_score, "evidence": d4_evidence},
-            "Domain 5: Confidence, Mindset & Professional Agency": {"score": d5_mindset_score, "evidence": d5_evidence},
-            "Domain 6: Access, Equity & Infrastructure": {"score": d6_infrastructure_score, "evidence": d6_evidence},
-            "Domain 7: Professional Transformation & Culture": {"score": d7_transformation_score, "evidence": d7_evidence},
+            "Domain 5: Educator Agency & Confidence": {"score": d5_mindset_score, "evidence": d5_evidence},
+            "Domain 6: Equity, Access & Time Resources": {"score": d6_infrastructure_score, "evidence": d6_evidence},
+            "Domain 7: Collaborative Culture & Leadership": {"score": d7_transformation_score, "evidence": d7_evidence},
         }
     }
     return json.dumps(result)
 
 # -----------------------------------------------------------------------------
-# 2. SYSTEM INSTRUCTION (Agent's Core Brain & Persona)
+# 2. SYSTEM INSTRUCTION (Coaching Persona)
 # -----------------------------------------------------------------------------
 SYSTEM_INSTRUCTION = """
-You are the Miami AI Club (MAIC) AI in Education Task Force Evaluation Agent.
-Your mission is to evaluate a school teacher's readiness for AI integration through an interactive, professional, non-evaluative interview.
+You are the Miami AI Club (MAIC) AI in Education Task Force Growth Coach.
+Your mission is to support educators in exploring where generative AI meets their teaching practice through an encouraging, collaborative dialogue.
 
-Ground your evaluation strictly in the MAIC Task Force Implementation Guide and Educator Synthesis documents:
-- The 4 Readiness Tiers: Emerging (1.00–1.99), Developing (2.00–2.99), Proficient (3.00–3.99), Advanced (4.00–5.00).
-- The 7 Diagnostic Domains:
-    1. AI Awareness & Conceptual Literacy (token prediction, hallucination auditing)
-    2. Instructional Planning & Scaffolding (adaptive differentiation, multimodal assets)
-    3. Assessment Integrity (Design for Friction, Assess for Judgment, moving off AI detectors)
-    4. Ethics, Privacy & Student Safeguards (FERPA/COPPA, data minimization, zero-retention vendor terms, human oversight)
-    5. Confidence, Mindset & Professional Agency (AI as thinking partner, not replacement)
-    6. Access, Equity & Infrastructure (device equity, protected planning time vs workload burden)
-    7. Professional Transformation & Collaborative Culture (Lead Your Own Transformation, peer coaching, model classrooms, explicit Appendix D Student AI Literacy)
+TONE & LANGUAGE RULES:
+1. Ground every response in supportive, growth-oriented language. Never use words like 'fail', 'gap', 'capped', 'punished', or 'mandatory'. Instead, use 'priority area to strengthen', 'recommended next step', and 'celebrated strength'.
+2. Ask exactly ONE question per turn. Never combine multiple inquiries into a paragraph.
+3. Offer clear, numbered or lettered selectable options (e.g., A, B, C, D) alongside an invitation to elaborate if they prefer. This keeps answering effortless for busy educators.
+4. Never reveal HTML markup, code blocks, or raw JSON in your text responses.
 
-INTERVIEW PROTOCOL:
-1. Conduct an engaging conversation. Ask 1 or at most 2 targeted questions per turn. Never dump a long list of questions.
-2. Listen carefully to the teacher's narrative. If an answer is vague or brief, probe for concrete classroom evidence:
-   - If they mention using AI for lesson planning, ask how they differentiate for diverse learners.
-   - If they mention essays or student homework, probe whether they 'Design for Friction' or rely on automated AI detectors.
-   - Always probe Domain 4: Ask specifically if student PII is entered and whether tools are district-cleared.
-   - Always check Domain 6: Ask if they are given protected contract time to learn AI or if it is on top of an already full workload.
-3. Once you have sufficient qualitative evidence across all 7 domains (typically 4 to 6 conversational turns), DO NOT ask more questions.
-4. Execute the tool `evaluate_teacher_readiness` with your scored judgments (1.00 to 4.00 for each domain) and qualitative evidence summaries.
-5. After receiving the tool output, generate a complete, standalone, professionally styled HTML report enclosed inside a ```html ``` code block.
-   The HTML report must contain:
-   - Header with Educator, Grade Band, Resource Reality, and Final Tier badge.
-   - Safeguard Gate Notice if Domain 4 capped their score.
-   - Workload Perception Gap Notice if protected contract time is missing.
-   - Domain Score Table with scores (1.0–4.0) and evidence notes from your interview.
-   - Differentiated PD assignments from MAIC Appendix A (Units 1–12) and Appendix C (Joint Units 1–10).
-   - Student AI Literacy plan from MAIC Appendix D (Units 1–6).
-   - Contextual 30-60-90 Day Milestone Roadmap adjusted to their resource level.
+INTERVIEW FLOW:
+- Probe one area at a time across the 7 MAIC domains:
+    1. Conceptual Literacy (familiarity with AI tools, hallucination spot-checks)
+    2. Instructional Differentiation (using AI for tiered supports or scaffolds)
+    3. Assessment Integrity (valuing reasoning/process over relying on AI detectors)
+    4. Student Privacy & Safety (handling PII, district-vetted tools, FERPA/COPPA)
+    5. Professional Agency (AI as assistant, keeping educator at the center)
+    6. Protected Time & Support (whether school provides designated time for AI professional learning)
+    7. School Culture (peer sharing, student AI literacy)
+- Once sufficient insight is gathered (typically 5 to 7 turns), call `evaluate_teacher_readiness`.
+- After calling the tool, deliver a brief, warm wrap-up message in chat (e.g., "Thank you for sharing your experience! Your personalized growth roadmap is ready below."). Follow it with a ```html ``` block containing the complete styled HTML report.
 """
 
 # -----------------------------------------------------------------------------
-# 3. STREAMLIT INTERFACE & AGENT RUNTIME
+# 3. UI & RUNTIME SETUP
 # -----------------------------------------------------------------------------
-st.title("🤖 MAIC Teacher AI Readiness Evaluation Agent")
-st.caption("Autonomous Diagnostic Agent • Grounded in Miami AI Club Task Force Framework")
+st.title("🌱 MAIC Teacher AI Readiness Consultation")
+st.caption("A supportive, growth-oriented reflection tool • Miami AI Club Education Framework")
 
-# Sidebar Configuration
+# Privacy Notice
+st.warning(
+    "🔒 **Privacy Notice:** To protect student and staff privacy under FERPA/COPPA, "
+    "please **do not enter any student names, IDs, or personally identifiable information (PII)**."
+)
+
 with st.sidebar:
-    st.header("Agent Configuration")
-    # Check st.secrets first (for Streamlit Cloud), then fallback to environment variable
+    st.header("Settings")
     default_key = ""
     try:
         default_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
     except Exception:
         default_key = os.environ.get("GEMINI_API_KEY", "")
 
-    api_key = st.text_input("Enter Gemini API Key", type="password", value=default_key)
+    api_key = st.text_input("Gemini API Key", type="password", value=default_key)
     st.markdown("---")
     st.markdown("""
-    **Evaluation Features:**
-    - Adaptive dialogue & evidence probing
-    - 7-Domain rubric scoring (1.0–4.0)
-    - Hard Safeguard Gate enforcement
-    - Workload perception gap analysis
-    - Autonomous HTML scorecard authoring
+    **Consultation Pillars:**
+    - Step-by-step single-question guidance
+    - Supportive, strength-based recommendations
+    - Strict student data protection
+    - Tailored 30-60-90 day growth path
     """)
-    if st.button("Reset Interview"):
+    if st.button("Start Fresh Interview", use_container_width=True):
         st.session_state.chat_history = []
         st.session_state.html_report = None
         st.rerun()
 
-# Initialize session state
+# Welcome Message
+INITIAL_PROMPT = (
+    "Hello and welcome! I'm your MAIC AI Growth Coach. Our goal today is to look at how AI tools "
+    "can best support your workload and students in a completely non-evaluative, supportive space.\n\n"
+    "*Friendly reminder: Please avoid sharing any student names or personal data during our chat.*\n\n"
+    "To begin, **what grade band do you primarily work with?**\n\n"
+    "• **A)** Elementary (K–5)\n"
+    "• **B)** Middle School (6–8)\n"
+    "• **C)** High School (9–12)\n"
+    "• **D)** Higher Ed / Specialist / Other (feel free to type your details!)"
+)
+
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = [
         types.Content(
             role="model",
-            parts=[types.Part.from_text(
-                text="Welcome! I am the MAIC AI Readiness Evaluation Agent. I'm here to have a collaborative, non-evaluative conversation to understand how generative AI intersects with your teaching, your students' learning, and your school environment.\n\nTo begin, could you share what grade band and subject you teach, and give me a brief picture of your school's current technology setup (e.g., do students have 1:1 devices, and do you have access to approved AI tools)?"
-            )]
+            parts=[types.Part.from_text(text=INITIAL_PROMPT)]
         )
     ]
 if "html_report" not in st.session_state:
     st.session_state.html_report = None
 
-# Display existing chat history
+# Render Existing Chat History
 for content in st.session_state.chat_history:
     for part in content.parts:
         if part.text:
-            with st.chat_message("assistant" if content.role == "model" else "user"):
-                st.markdown(part.text)
+            # Strip out any HTML blocks from the visible chat
+            display_text = re.sub(r"```html[\s\S]*?```", "", part.text).strip()
+            if display_text:
+                with st.chat_message("assistant" if content.role == "model" else "user"):
+                    st.markdown(display_text)
 
-# User turn input
-if user_prompt := st.chat_input("Reply to the evaluation agent..."):
+# Input Handler
+if user_prompt := st.chat_input("Select an option or type your reply..."):
     if not api_key:
-        st.error("Please enter a Gemini API Key in the sidebar to run the agent.")
+        st.error("Please provide a Gemini API Key in the sidebar to proceed.")
     else:
-        # Display user message
         with st.chat_message("user"):
             st.markdown(user_prompt)
 
@@ -196,32 +205,30 @@ if user_prompt := st.chat_input("Reply to the evaluation agent..."):
         client = genai.Client(api_key=api_key)
 
         with st.chat_message("assistant"):
-            with st.spinner("Agent is analyzing your response and evaluating evidence..."):
+            with st.spinner("Reflecting on your response..."):
                 try:
                     response = client.models.generate_content(
                         model="gemini-3.6-flash",
                         contents=st.session_state.chat_history,
                         config=types.GenerateContentConfig(
                             system_instruction=SYSTEM_INSTRUCTION,
-                            temperature=0.4,
-                            tools=[evaluate_teacher_readiness]  # Pass function directly
+                            temperature=0.3,
+                            tools=[evaluate_teacher_readiness]
                         )
                     )
                 except Exception as err:
                     st.error(f"API Error: {repr(err)}")
                     st.stop()
 
-                agent_text = ""
+                raw_model_text = ""
 
-                # Check if the agent called the evaluation tool
+                # Handle tool invocation if ready
                 if response.function_calls:
                     for call in response.function_calls:
                         if call.name == "evaluate_teacher_readiness":
-                            # Execute the local evaluation tool
                             args = dict(call.args)
                             tool_result_json = evaluate_teacher_readiness(**args)
 
-                            # Provide tool result back to the model
                             st.session_state.chat_history.append(response.candidates[0].content)
                             st.session_state.chat_history.append(
                                 types.Content(
@@ -233,7 +240,6 @@ if user_prompt := st.chat_input("Reply to the evaluation agent..."):
                                 )
                             )
 
-                            # Let the agent write its final assessment response & HTML
                             try:
                                 follow_up = client.models.generate_content(
                                     model="gemini-3.6-flash",
@@ -243,46 +249,49 @@ if user_prompt := st.chat_input("Reply to the evaluation agent..."):
                                         temperature=0.3
                                     )
                                 )
-                                agent_text = follow_up.text
-                                st.markdown(agent_text)
+                                raw_model_text = follow_up.text
                                 st.session_state.chat_history.append(
-                                    types.Content(role="model", parts=[types.Part.from_text(text=agent_text)])
+                                    types.Content(role="model", parts=[types.Part.from_text(text=raw_model_text)])
                                 )
                             except Exception as err:
-                                st.error(f"Follow-up Error: {repr(err)}")
+                                st.error(f"Report Generation Error: {repr(err)}")
                                 st.stop()
                 else:
-                    agent_text = response.text
-                    st.markdown(agent_text)
+                    raw_model_text = response.text
                     st.session_state.chat_history.append(
-                        types.Content(role="model", parts=[types.Part.from_text(text=agent_text)])
+                        types.Content(role="model", parts=[types.Part.from_text(text=raw_model_text)])
                     )
 
-                # Extract HTML report if present in agent response
-                if "```html" in agent_text:
-                    start_idx = agent_text.find("```html") + 7
-                    end_idx = agent_text.find("```", start_idx)
+                # Separate HTML code from display text
+                if "```html" in raw_model_text:
+                    start_idx = raw_model_text.find("```html") + 7
+                    end_idx = raw_model_text.find("```", start_idx)
                     if end_idx != -1:
-                        st.session_state.html_report = agent_text[start_idx:end_idx].strip()
+                        st.session_state.html_report = raw_model_text[start_idx:end_idx].strip()
+
+                visible_message = re.sub(r"```html[\s\S]*?```", "", raw_model_text).strip()
+                if visible_message:
+                    st.markdown(visible_message)
 
 # -----------------------------------------------------------------------------
-# 4. REPORT DOWNLOAD & BROWSER PREVIEW (All st.columns properly specified)
+# 4. FINAL CLEAN ASSESSMENT DISPLAY (Clean Preview & Download Only)
 # -----------------------------------------------------------------------------
 if st.session_state.html_report:
     st.divider()
-    st.success("🎉 **Assessment Complete!** Your tailored HTML diagnostic summary has been authored by the agent.")
-    
-    col1, col2 = st.columns(2)
+    st.success("🎉 **Reflection Complete!** Your tailored readiness profile and roadmap have been generated below.")
+
+    col1, col2 = st.columns([1, 2])
     with col1:
         st.download_button(
-            label="📥 Download HTML Summary Report",
+            label="📥 Download Growth Profile (.html)",
             data=st.session_state.html_report,
-            file_name="MAIC_Teacher_AI_Readiness_Report.html",
+            file_name="Teacher_AI_Readiness_Roadmap.html",
             mime="text/html",
-            type="primary"
+            type="primary",
+            use_container_width=True
         )
     with col2:
-        st.info("The report can be opened in any web browser or printed to PDF.")
+        st.caption("You can open this file in any web browser, save it to Google Drive, or print it directly to PDF.")
 
-    with st.expander("👁️ Preview Generated Assessment Report in Browser", expanded=True):
-        st.components.v1.html(st.session_state.html_report, height=750, scrolling=True)
+    with st.expander("📄 View Full Growth Assessment & 30-60-90 Day Plan", expanded=True):
+        st.components.v1.html(st.session_state.html_report, height=850, scrolling=True)
