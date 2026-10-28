@@ -138,13 +138,13 @@ st.warning(
 
 with st.sidebar:
     st.header("Settings")
-    default_key = ""
-    try:
-        default_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
-    except Exception:
-        default_key = os.environ.get("GEMINI_API_KEY", "")
-
-    api_key = st.text_input("Gemini API Key", type="password", value=default_key)
+    
+    api_key = st.text_input(
+        "Gemini API Key", 
+        type="password", 
+        value="AQ.Ab8RN6I9sHoMVBVjRKUmh2ou6KDoeVKvmJfxs8nDfFOXL8CsLw"
+    )
+    
     st.markdown("---")
     st.markdown("""
     **Consultation Pillars:**
