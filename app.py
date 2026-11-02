@@ -142,7 +142,7 @@ with st.sidebar:
     api_key = st.text_input(
         "Gemini API Key", 
         type="password", 
-        value="AQ.Ab8RN6IXMQLsu4pbdXjv987gilmIGeDmOsvO2ZUHm3-MdrwWfg"
+        value="AQ.Ab8RN6JpwDd6wyh9fu4cBRXX68TMcmiE0W04OBxsK00inJwSIg"
     )
     
     st.markdown("---")
