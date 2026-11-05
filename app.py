@@ -2,9 +2,9 @@ import streamlit as st
 import json
 import os
 import re
+import requests
 from google import genai
 from google.genai import types
-from google.genai import errors
 
 # -----------------------------------------------------------------------------
 # PAGE CONFIGURATION
@@ -22,16 +22,28 @@ MODEL_ID = "gemini-3.8-flash"
 
 @st.cache_resource
 def get_client():
-    """
-    Initializes Google GenAI client automatically:
-    - Reads 'GEMINI_API_KEY' from Streamlit Secrets (App Settings -> Secrets on Community Cloud)
-    - Falls back to local OS environment variable 'GEMINI_API_KEY' for local testing
-    """
     api_key = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
     if not api_key:
-        st.error("⚠️ App secret `GEMINI_API_KEY` is missing in Streamlit Cloud Settings (Manage app → Settings → Secrets).")
+        st.error("⚠️ App secret `GEMINI_API_KEY` is missing in Streamlit Cloud Settings.")
         st.stop()
     return genai.Client(api_key=api_key)
+
+def save_to_google_drive(html_content: str, result_dict: dict):
+    """Sends the HTML report and JSON diagnostic data to your Google Drive folder."""
+    webhook_url = st.secrets.get("STORAGE_WEBHOOK_URL") or os.getenv("STORAGE_WEBHOOK_URL")
+    if not webhook_url:
+        return
+
+    payload = {
+        "educator_name": result_dict.get("educator_name", "Anonymous"),
+        "html_report": html_content,
+        "diagnostic_data": result_dict
+    }
+
+    try:
+        requests.post(webhook_url, json=payload, timeout=8)
+    except Exception as e:
+        print(f"Drive sync warning: {e}")
 
 # -----------------------------------------------------------------------------
 # 1. EVALUATION TOOL FUNCTION (Diagnostic Engine)
@@ -56,10 +68,6 @@ def evaluate_teacher_readiness(
     d7_evidence: str,
     protected_time_gap: bool
 ) -> str:
-    """
-    Computes teacher readiness scores across all 7 MAIC domains,
-    identifies focus areas, and returns a structured JSON summary.
-    """
     scores = [
         d1_awareness_score, d2_instruction_score, d3_assessment_score,
         d4_safeguard_score, d5_mindset_score, d6_infrastructure_score,
@@ -149,15 +157,14 @@ INTERVIEW FLOW:
 st.title("🌱 MAIC Teacher AI Readiness Consultation")
 st.caption("A supportive, growth-oriented reflection tool • Miami AI Club Education Framework")
 
-# Privacy Notice
 st.warning(
     "🔒 **Privacy Notice:** To protect student and staff privacy under FERPA/COPPA, "
     "please **do not enter any student names, IDs, or personally identifiable information (PII)**."
 )
 
 with st.sidebar:
-    st.header("Settings")
-    st.info(f"**Engine:** `{MODEL_ID}`\n\n**Mode:** Continuous Consultation", icon="✨")
+    st.header("About")
+    st.info(f"**Engine:** `{MODEL_ID}`\n\n**Storage:** Google Drive Synced", icon="☁️")
     st.markdown("---")
     st.markdown("""
     **Consultation Pillars:**
@@ -169,9 +176,10 @@ with st.sidebar:
     if st.button("Start Fresh Interview", use_container_width=True):
         st.session_state.chat_history = []
         st.session_state.html_report = None
+        st.session_state.diagnostic_data = None
+        st.session_state.drive_synced = False
         st.rerun()
 
-# Welcome Message
 INITIAL_PROMPT = (
     "Hello and welcome! I'm your MAIC AI Growth Coach. Our goal today is to look at how AI tools "
     "can best support your workload and students in a completely non-evaluative, supportive space.\n\n"
@@ -185,15 +193,15 @@ INITIAL_PROMPT = (
 
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = [
-        types.Content(
-            role="model",
-            parts=[types.Part.from_text(text=INITIAL_PROMPT)]
-        )
+        types.Content(role="model", parts=[types.Part.from_text(text=INITIAL_PROMPT)])
     ]
 if "html_report" not in st.session_state:
     st.session_state.html_report = None
+if "diagnostic_data" not in st.session_state:
+    st.session_state.diagnostic_data = None
+if "drive_synced" not in st.session_state:
+    st.session_state.drive_synced = False
 
-# Render Existing Chat History
 for content in st.session_state.chat_history:
     for part in content.parts:
         if part.text:
@@ -202,7 +210,6 @@ for content in st.session_state.chat_history:
                 with st.chat_message("assistant" if content.role == "model" else "user"):
                     st.markdown(display_text)
 
-# Input Handler
 if user_prompt := st.chat_input("Select an option or type your reply..."):
     with st.chat_message("user"):
         st.markdown(user_prompt)
@@ -231,12 +238,12 @@ if user_prompt := st.chat_input("Select an option or type your reply..."):
 
             raw_model_text = ""
 
-            # Handle tool invocation if ready
             if response.function_calls:
                 for call in response.function_calls:
                     if call.name == "evaluate_teacher_readiness":
                         args = dict(call.args)
                         tool_result_json = evaluate_teacher_readiness(**args)
+                        st.session_state.diagnostic_data = json.loads(tool_result_json)
 
                         st.session_state.chat_history.append(response.candidates[0].content)
                         st.session_state.chat_history.append(
@@ -271,19 +278,23 @@ if user_prompt := st.chat_input("Select an option or type your reply..."):
                     types.Content(role="model", parts=[types.Part.from_text(text=raw_model_text)])
                 )
 
-            # Separate HTML code block from visible chat text
             if "```html" in raw_model_text:
                 start_idx = raw_model_text.find("```html") + 7
                 end_idx = raw_model_text.find("```", start_idx)
                 if end_idx != -1:
                     st.session_state.html_report = raw_model_text[start_idx:end_idx].strip()
 
+            # Save files into your Google Drive folder
+            if st.session_state.html_report and st.session_state.diagnostic_data and not st.session_state.drive_synced:
+                save_to_google_drive(st.session_state.html_report, st.session_state.diagnostic_data)
+                st.session_state.drive_synced = True
+
             visible_message = re.sub(r"```html[\s\S]*?```", "", raw_model_text).strip()
             if visible_message:
                 st.markdown(visible_message)
 
 # -----------------------------------------------------------------------------
-# 4. FINAL CLEAN ASSESSMENT DISPLAY (Clean Preview & Download Only)
+# 4. FINAL CLEAN ASSESSMENT DISPLAY
 # -----------------------------------------------------------------------------
 if st.session_state.html_report:
     st.divider()
