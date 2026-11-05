@@ -1,6 +1,5 @@
 import streamlit as st
 import json
-import os
 import re
 from google import genai
 from google.genai import errors
@@ -11,6 +10,17 @@ st.set_page_config(
     page_icon="🌱",
     layout="wide"
 )
+
+# -----------------------------------------------------------------------------
+# VERTEX AI CONFIGURATION (Hardcoded in code, Keyless via ADC)
+# -----------------------------------------------------------------------------
+PROJECT_ID = "357687195215"  # Or "project-ade43c8b-68f1-4e50-bae"
+LOCATION = "us-central1"
+MODEL_ID = "gemini-2.5-flash"
+
+@st.cache_resource
+def get_vertex_client():
+    return genai.Client(vertexai=True, project=PROJECT_ID, location=LOCATION)
 
 # -----------------------------------------------------------------------------
 # 1. EVALUATION TOOL FUNCTION (Diagnostic Engine)
@@ -46,7 +56,6 @@ def evaluate_teacher_readiness(
     ]
     avg_score = sum(scores) / len(scores)
 
-    # Determine Base Tier
     if avg_score >= 3.5:
         base_tier = "Advanced Integration"
     elif avg_score >= 3.0:
@@ -56,7 +65,6 @@ def evaluate_teacher_readiness(
     else:
         base_tier = "Emerging Exploration"
 
-    # Growth Guidance: Domain 4 establishes foundational student safeguards
     final_tier = base_tier
     safeguard_applied = False
     priority_focus = ""
@@ -130,7 +138,6 @@ INTERVIEW FLOW:
 st.title("🌱 MAIC Teacher AI Readiness Consultation")
 st.caption("A supportive, growth-oriented reflection tool • Miami AI Club Education Framework")
 
-# Privacy Notice
 st.warning(
     "🔒 **Privacy Notice:** To protect student and staff privacy under FERPA/COPPA, "
     "please **do not enter any student names, IDs, or personally identifiable information (PII)**."
@@ -138,12 +145,7 @@ st.warning(
 
 with st.sidebar:
     st.header("Settings")
-    
-    api_key = st.text_input(
-        "Gemini API Key", 
-        type="password", 
-        value="AQ.Ab8RN6JpwDd6wyh9fu4cBRXX68TMcmiE0W04OBxsK00inJwSIg"
-    )
+    st.info(f"**Connected to:** Vertex AI\n\n**Project:** `{PROJECT_ID}`\n\n**Model:** `{MODEL_ID}`", icon="☁️")
     
     st.markdown("---")
     st.markdown("""
@@ -184,94 +186,90 @@ if "html_report" not in st.session_state:
 for content in st.session_state.chat_history:
     for part in content.parts:
         if part.text:
-            # Strip out any HTML blocks from the visible chat
             display_text = re.sub(r"```html[\s\S]*?```", "", part.text).strip()
             if display_text:
                 with st.chat_message("assistant" if content.role == "model" else "user"):
                     st.markdown(display_text)
 
-# Input Handler
+# Input Handler (No API Key Check Required)
 if user_prompt := st.chat_input("Select an option or type your reply..."):
-    if not api_key:
-        st.error("Please provide a Gemini API Key in the sidebar to proceed.")
-    else:
-        with st.chat_message("user"):
-            st.markdown(user_prompt)
+    with st.chat_message("user"):
+        st.markdown(user_prompt)
 
-        st.session_state.chat_history.append(
-            types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)])
-        )
+    st.session_state.chat_history.append(
+        types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)])
+    )
 
-        client = genai.Client(api_key=api_key)
+    client = get_vertex_client()
 
-        with st.chat_message("assistant"):
-            with st.spinner("Reflecting on your response..."):
-                try:
-                    response = client.models.generate_content(
-                        model="gemini-3.6-flash",
-                        contents=st.session_state.chat_history,
-                        config=types.GenerateContentConfig(
-                            system_instruction=SYSTEM_INSTRUCTION,
-                            temperature=0.3,
-                            tools=[evaluate_teacher_readiness]
-                        )
+    with st.chat_message("assistant"):
+        with st.spinner("Reflecting on your response..."):
+            try:
+                response = client.models.generate_content(
+                    model=MODEL_ID,
+                    contents=st.session_state.chat_history,
+                    config=types.GenerateContentConfig(
+                        system_instruction=SYSTEM_INSTRUCTION,
+                        temperature=0.3,
+                        tools=[evaluate_teacher_readiness]
                     )
-                except Exception as err:
-                    st.error(f"API Error: {repr(err)}")
-                    st.stop()
+                )
+            except Exception as err:
+                st.error(f"Vertex AI Error: {repr(err)}")
+                st.stop()
 
-                raw_model_text = ""
+            raw_model_text = ""
 
-                # Handle tool invocation if ready
-                if response.function_calls:
-                    for call in response.function_calls:
-                        if call.name == "evaluate_teacher_readiness":
-                            args = dict(call.args)
-                            tool_result_json = evaluate_teacher_readiness(**args)
+            # Handle tool invocation if ready
+            if response.function_calls:
+                for call in response.function_calls:
+                    if call.name == "evaluate_teacher_readiness":
+                        args = dict(call.args)
+                        tool_result_json = evaluate_teacher_readiness(**args)
 
-                            st.session_state.chat_history.append(response.candidates[0].content)
-                            st.session_state.chat_history.append(
-                                types.Content(
-                                    role="user",
-                                    parts=[types.Part.from_function_response(
-                                        name="evaluate_teacher_readiness",
-                                        response={"result": tool_result_json}
-                                    )]
+                        st.session_state.chat_history.append(response.candidates[0].content)
+                        st.session_state.chat_history.append(
+                            types.Content(
+                                role="user",
+                                parts=[types.Part.from_function_response(
+                                    name="evaluate_teacher_readiness",
+                                    response={"result": tool_result_json}
+                                )]
+                            )
+                        )
+
+                        try:
+                            follow_up = client.models.generate_content(
+                                model=MODEL_ID,
+                                contents=st.session_state.chat_history,
+                                config=types.GenerateContentConfig(
+                                    system_instruction=SYSTEM_INSTRUCTION,
+                                    temperature=0.3
                                 )
                             )
+                            raw_model_text = follow_up.text
+                            st.session_state.chat_history.append(
+                                types.Content(role="model", parts=[types.Part.from_text(text=raw_model_text)])
+                            )
+                        except Exception as err:
+                            st.error(f"Report Generation Error: {repr(err)}")
+                            st.stop()
+            else:
+                raw_model_text = response.text
+                st.session_state.chat_history.append(
+                    types.Content(role="model", parts=[types.Part.from_text(text=raw_model_text)])
+                )
 
-                            try:
-                                follow_up = client.models.generate_content(
-                                    model="gemini-3.6-flash",
-                                    contents=st.session_state.chat_history,
-                                    config=types.GenerateContentConfig(
-                                        system_instruction=SYSTEM_INSTRUCTION,
-                                        temperature=0.3
-                                    )
-                                )
-                                raw_model_text = follow_up.text
-                                st.session_state.chat_history.append(
-                                    types.Content(role="model", parts=[types.Part.from_text(text=raw_model_text)])
-                                )
-                            except Exception as err:
-                                st.error(f"Report Generation Error: {repr(err)}")
-                                st.stop()
-                else:
-                    raw_model_text = response.text
-                    st.session_state.chat_history.append(
-                        types.Content(role="model", parts=[types.Part.from_text(text=raw_model_text)])
-                    )
+            # Separate HTML code from display text
+            if "```html" in raw_model_text:
+                start_idx = raw_model_text.find("```html") + 7
+                end_idx = raw_model_text.find("```", start_idx)
+                if end_idx != -1:
+                    st.session_state.html_report = raw_model_text[start_idx:end_idx].strip()
 
-                # Separate HTML code from display text
-                if "```html" in raw_model_text:
-                    start_idx = raw_model_text.find("```html") + 7
-                    end_idx = raw_model_text.find("```", start_idx)
-                    if end_idx != -1:
-                        st.session_state.html_report = raw_model_text[start_idx:end_idx].strip()
-
-                visible_message = re.sub(r"```html[\s\S]*?```", "", raw_model_text).strip()
-                if visible_message:
-                    st.markdown(visible_message)
+            visible_message = re.sub(r"```html[\s\S]*?```", "", raw_model_text).strip()
+            if visible_message:
+                st.markdown(visible_message)
 
 # -----------------------------------------------------------------------------
 # 4. FINAL CLEAN ASSESSMENT DISPLAY (Clean Preview & Download Only)
