@@ -4,7 +4,11 @@ import os
 import re
 from google import genai
 from google.genai import types
+from google.genai import errors
 
+# -----------------------------------------------------------------------------
+# PAGE CONFIGURATION
+# -----------------------------------------------------------------------------
 st.set_page_config(
     page_title="MAIC Teacher AI Readiness Consultation",
     page_icon="🌱",
@@ -12,15 +16,20 @@ st.set_page_config(
 )
 
 # -----------------------------------------------------------------------------
-# CLIENT SETUP (Pulls automatically from Streamlit Secrets)
+# MODEL & CLIENT CONFIGURATION
 # -----------------------------------------------------------------------------
+MODEL_ID = "gemini-3.8-flash"
+
 @st.cache_resource
 def get_client():
-    # 1. Tries Streamlit Cloud Secrets (for live deployment)
-    # 2. Tries OS environment variable (for local dev)
+    """
+    Initializes Google GenAI client automatically:
+    - Reads 'GEMINI_API_KEY' from Streamlit Secrets (App Settings -> Secrets on Community Cloud)
+    - Falls back to local OS environment variable 'GEMINI_API_KEY' for local testing
+    """
     api_key = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
     if not api_key:
-        st.error("⚠️ App secret `GEMINI_API_KEY` is missing in Streamlit Cloud Settings.")
+        st.error("⚠️ App secret `GEMINI_API_KEY` is missing in Streamlit Cloud Settings (Manage app → Settings → Secrets).")
         st.stop()
     return genai.Client(api_key=api_key)
 
@@ -47,6 +56,10 @@ def evaluate_teacher_readiness(
     d7_evidence: str,
     protected_time_gap: bool
 ) -> str:
+    """
+    Computes teacher readiness scores across all 7 MAIC domains,
+    identifies focus areas, and returns a structured JSON summary.
+    """
     scores = [
         d1_awareness_score, d2_instruction_score, d3_assessment_score,
         d4_safeguard_score, d5_mindset_score, d6_infrastructure_score,
@@ -136,13 +149,16 @@ INTERVIEW FLOW:
 st.title("🌱 MAIC Teacher AI Readiness Consultation")
 st.caption("A supportive, growth-oriented reflection tool • Miami AI Club Education Framework")
 
+# Privacy Notice
 st.warning(
     "🔒 **Privacy Notice:** To protect student and staff privacy under FERPA/COPPA, "
     "please **do not enter any student names, IDs, or personally identifiable information (PII)**."
 )
 
 with st.sidebar:
-    st.header("About")
+    st.header("Settings")
+    st.info(f"**Engine:** `{MODEL_ID}`\n\n**Mode:** Continuous Consultation", icon="✨")
+    st.markdown("---")
     st.markdown("""
     **Consultation Pillars:**
     - Step-by-step single-question guidance
@@ -186,7 +202,7 @@ for content in st.session_state.chat_history:
                 with st.chat_message("assistant" if content.role == "model" else "user"):
                     st.markdown(display_text)
 
-# Input Handler (Direct interaction — no key prompts)
+# Input Handler
 if user_prompt := st.chat_input("Select an option or type your reply..."):
     with st.chat_message("user"):
         st.markdown(user_prompt)
@@ -201,7 +217,7 @@ if user_prompt := st.chat_input("Select an option or type your reply..."):
         with st.spinner("Reflecting on your response..."):
             try:
                 response = client.models.generate_content(
-                    model="gemini-2.5-flash",
+                    model=MODEL_ID,
                     contents=st.session_state.chat_history,
                     config=types.GenerateContentConfig(
                         system_instruction=SYSTEM_INSTRUCTION,
@@ -215,6 +231,7 @@ if user_prompt := st.chat_input("Select an option or type your reply..."):
 
             raw_model_text = ""
 
+            # Handle tool invocation if ready
             if response.function_calls:
                 for call in response.function_calls:
                     if call.name == "evaluate_teacher_readiness":
@@ -234,7 +251,7 @@ if user_prompt := st.chat_input("Select an option or type your reply..."):
 
                         try:
                             follow_up = client.models.generate_content(
-                                model="gemini-2.5-flash",
+                                model=MODEL_ID,
                                 contents=st.session_state.chat_history,
                                 config=types.GenerateContentConfig(
                                     system_instruction=SYSTEM_INSTRUCTION,
@@ -254,6 +271,7 @@ if user_prompt := st.chat_input("Select an option or type your reply..."):
                     types.Content(role="model", parts=[types.Part.from_text(text=raw_model_text)])
                 )
 
+            # Separate HTML code block from visible chat text
             if "```html" in raw_model_text:
                 start_idx = raw_model_text.find("```html") + 7
                 end_idx = raw_model_text.find("```", start_idx)
@@ -265,7 +283,7 @@ if user_prompt := st.chat_input("Select an option or type your reply..."):
                 st.markdown(visible_message)
 
 # -----------------------------------------------------------------------------
-# 4. FINAL ASSESSMENT DISPLAY
+# 4. FINAL CLEAN ASSESSMENT DISPLAY (Clean Preview & Download Only)
 # -----------------------------------------------------------------------------
 if st.session_state.html_report:
     st.divider()
