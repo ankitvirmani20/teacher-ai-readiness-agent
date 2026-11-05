@@ -12,15 +12,20 @@ st.set_page_config(
 )
 
 # -----------------------------------------------------------------------------
-# VERTEX AI CONFIGURATION (Hardcoded in code, Keyless via ADC)
+# VERTEX AI CONFIGURATION (Project fsi-labs-509219, Keyless ADC)
 # -----------------------------------------------------------------------------
-PROJECT_ID = "357687195215"  # Or "project-ade43c8b-68f1-4e50-bae"
-LOCATION = "us"
-MODEL_ID = "gemini-3.8-flash"
+PROJECT_ID = "fsi-labs-509219"  # Project Number: 867402506099
+LOCATION = "us-central1"
+MODEL_ID = "gemini-2.5-flash"
 
 @st.cache_resource
 def get_vertex_client():
-    return genai.Client(vertexai=True, project=PROJECT_ID, location=LOCATION)
+    """Initializes a cached Vertex AI client using Application Default Credentials (ADC)."""
+    return genai.Client(
+        vertexai=True,
+        project=PROJECT_ID,
+        location=LOCATION
+    )
 
 # -----------------------------------------------------------------------------
 # 1. EVALUATION TOOL FUNCTION (Diagnostic Engine)
@@ -138,15 +143,17 @@ INTERVIEW FLOW:
 st.title("🌱 MAIC Teacher AI Readiness Consultation")
 st.caption("A supportive, growth-oriented reflection tool • Miami AI Club Education Framework")
 
+# Privacy Notice
 st.warning(
     "🔒 **Privacy Notice:** To protect student and staff privacy under FERPA/COPPA, "
     "please **do not enter any student names, IDs, or personally identifiable information (PII)**."
 )
 
 with st.sidebar:
-    st.header("Settings")
-    st.info(f"**Connected to:** Vertex AI\n\n**Project:** `{PROJECT_ID}`\n\n**Model:** `{MODEL_ID}`", icon="☁️")
-    
+    st.header("Backend Status")
+    st.success(f"**GCP Project:** `{PROJECT_ID}`\n\n**Region:** `{LOCATION}`\n\n**Model:** `{MODEL_ID}`", icon="☁️")
+    st.caption("Authenticated keyless via Vertex AI ADC")
+
     st.markdown("---")
     st.markdown("""
     **Consultation Pillars:**
@@ -191,7 +198,7 @@ for content in st.session_state.chat_history:
                 with st.chat_message("assistant" if content.role == "model" else "user"):
                     st.markdown(display_text)
 
-# Input Handler (No API Key Check Required)
+# Input Handler (Direct Submission — No API Key Required)
 if user_prompt := st.chat_input("Select an option or type your reply..."):
     with st.chat_message("user"):
         st.markdown(user_prompt)
@@ -260,7 +267,7 @@ if user_prompt := st.chat_input("Select an option or type your reply..."):
                     types.Content(role="model", parts=[types.Part.from_text(text=raw_model_text)])
                 )
 
-            # Separate HTML code from display text
+            # Separate HTML report from chat message
             if "```html" in raw_model_text:
                 start_idx = raw_model_text.find("```html") + 7
                 end_idx = raw_model_text.find("```", start_idx)
@@ -272,7 +279,7 @@ if user_prompt := st.chat_input("Select an option or type your reply..."):
                 st.markdown(visible_message)
 
 # -----------------------------------------------------------------------------
-# 4. FINAL CLEAN ASSESSMENT DISPLAY (Clean Preview & Download Only)
+# 4. FINAL CLEAN ASSESSMENT DISPLAY (Download & Preview)
 # -----------------------------------------------------------------------------
 if st.session_state.html_report:
     st.divider()
