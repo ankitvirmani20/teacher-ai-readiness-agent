@@ -15,8 +15,8 @@ st.set_page_config(
 # VERTEX AI CONFIGURATION (Hardcoded in code, Keyless via ADC)
 # -----------------------------------------------------------------------------
 PROJECT_ID = "357687195215"  # Or "project-ade43c8b-68f1-4e50-bae"
-LOCATION = "us-central1"
-MODEL_ID = "gemini-2.5-flash"
+LOCATION = "us"
+MODEL_ID = "gemini-3.8-flash"
 
 @st.cache_resource
 def get_vertex_client():
